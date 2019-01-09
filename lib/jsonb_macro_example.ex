@@ -5,8 +5,9 @@ defmodule JsonbMacroExample do
 
   import Ecto.Query
 
-  #########
-  # Macros
+  ###########
+  ## Macros
+  ###########
 
   @doc """
   A macro that transforms parameter into `where` / `or_where` expressions
@@ -31,10 +32,13 @@ defmodule JsonbMacroExample do
     end
   end
 
+  ###########
+  ## Macro v0
+
   @doc """
   v0: A macro that generates multiple fragments using dynamic expressions.
   """
-  defmacro json_multi_fragments_v0(col, params, opts) do
+  defmacro json_multi_expressions_v0(col, params, opts) do
     conjunction = Keyword.get(opts, :conjunction, :and)
     # conjuctive operator to be used between fragments
 
@@ -56,37 +60,80 @@ defmodule JsonbMacroExample do
     end
   end
 
+  ###########
+  ## Macro v1
+
   @doc """
   v1: A macro that generates multiple fragments using dynamic expressions.
+
+  ## Options
+
+    * `conjunction`: define whether to use `and` or `or` to join dynamic expressions
+    for each parameter. By default uses `and`.
   """
-  defmacro json_multi_fragments_v1(col, params, opts) do
-    conjunction = Keyword.get(opts, :conjunction, :and)
+  defmacro json_multi_expressions_v1(col, params, opts) do
     # conjuctive operator to be used between fragments
+    conjunction = Keyword.get(opts, :conjunction, :and)
 
     quote do
-      fragments =
-        Enum.reduce(unquote(params), nil, fn {key, val}, acc ->
-          JsonbMacroExample.combine_fragments(unquote(col), key, val, acc, unquote(conjunction))
-        end)
+      JsonbMacroExample.build_fragments(
+        unquote(params),
+        unquote(col),
+        unquote(conjunction)
+      )
     end
   end
 
-  @doc false
-  @spec combine_fragments(atom(), binary() | atom(), term(), Macro.t(), atom()) :: Macro.t()
-  def combine_fragments(col, key, val, acc, conjunction) do
-    frag =
-      dynamic(
-        [q],
-        fragment(
-          "?::jsonb @> ?::jsonb",
-          field(q, ^col),
-          ^%{to_string(key) => val}
-        )
-      )
+  ###########
+  ## Macro v2
 
-    # TODO I'd write this using a case, but it generates a compilation warning
-    # https://github.com/elixir-lang/elixir/issues/6738
-    JsonbMacroExample.do_combine(frag, acc, conjunction)
+  @doc """
+  v2: A macro that generates multiple fragments using dynamic expressions.
+
+  ## Options
+
+    * `conjunction`: define whether to use `and` or `or` to join dynamic expressions
+    for each parameter. By default uses `and`.
+    * `gen_dynamic` - An optional function to generate a dynamic fragment
+    (using `Ecto.Query.dynamic`).
+  """
+  defmacro json_multi_expressions_v2(col, params, opts) do
+    # conjuctive operator to be used between fragments
+    conjunction = Keyword.get(opts, :conjunction, :and)
+    # a function that generates a dynamic expression
+    dynamic_fun = Keyword.get(opts, :dynamic_fun)
+
+    quote do
+      JsonbMacroExample.build_expressions(
+        unquote(params),
+        unquote(col),
+        unquote(conjunction),
+        unquote(dynamic_fun)
+      )
+    end
+  end
+
+  #########
+  # Helpers
+
+  @doc false
+  @spec build_fragments(map() | Keyword.t(), atom(), atom()) :: Macro.t()
+  def build_fragments(params, col, conjunction) do
+    Enum.reduce(params, nil, fn {key, val}, acc ->
+      frag =
+        dynamic(
+          [q],
+          fragment(
+            "?::jsonb @> ?::jsonb",
+            field(q, ^col),
+            ^%{to_string(key) => val}
+          )
+        )
+
+      # TODO I'd write this using a case, but it generates a compilation warning
+      # https://github.com/elixir-lang/elixir/issues/6738
+      JsonbMacroExample.do_combine(frag, acc, conjunction)
+    end)
   end
 
   @doc false
@@ -95,73 +142,43 @@ defmodule JsonbMacroExample do
   def do_combine(frag, acc, :or), do: dynamic([q], ^acc or ^frag)
   def do_combine(frag, acc, _), do: dynamic([q], ^acc and ^frag)
 
-  @doc """
-  Creates an `OR` query expression over a JSONB column given multiple attributes and values.
+  @doc false
+  @spec build_expressions(map() | Keyword.t(), atom(), atom(), fun()) :: Macro.t()
+  def build_expressions(params, col, conjunction, dynamic_fun \\ nil)
 
-  This macro will use the `@>` operator to check for each key and value by default.
-  """
-  defmacro jsonb_or_where(query, col, params, opts \\ []),
-    do: do_json_where_macro(query, col, params, [{:where_type, :or_where} | opts])
+  def build_expressions(params, col, conjunction, dynamic_fun) do
+    Enum.reduce(params, nil, fn {key, val}, acc ->
+      frag = JsonbMacroExample.build_fragment(col, to_string(key), val, dynamic_fun)
 
-  @doc """
-  Create an `AND` query over a JSONB column given multiple attributes and values.
+      # TODO I'd write this using a case, but it generates a compilation warning
+      # https://github.com/elixir-lang/elixir/issues/6738
+      JsonbMacroExample.do_combine(frag, acc, conjunction)
+    end)
+  end
 
-  By default, this macro will use the `@>` operator to check for each key and value
-  provided in `params`.
+  @doc false
+  @spec build_fragment(binary(), atom | binary(), term(), fun()) :: Macro.t()
+  def build_fragment(col, key, val, nil) do
+    # build default dynamic fragment
+    dynamic(
+      [q],
+      fragment(
+        "?::jsonb @> ?::jsonb",
+        field(q, ^col),
+        ^%{key => val}
+      )
+    )
+  end
 
-  ## Options
+  def build_fragment(col, key, val, dynamic_fun) do
+    result = dynamic_fun.(col, key, val)
 
-    * `gen_dynamic` - An optional function to generate a dynamic fragment
-    (using `Ecto.Query.dynamic`).
+    case result do
+      nil ->
+        build_fragment(col, key, val, nil)
 
-  ## Examples
-
-  ```
-  iex> alias BitcloudDB.Schemas.Server
-  iex> from(s in Server, where: not is_nil(s.data)) |> jsonb_and_where(:data, disallowed: true, manufacturer: nil)
-  Ecto.Query<from s in BitcloudDB.Schemas.Server, where: not(is_nil(s.data)),
-  where: fragment("?::jsonb @> ?::jsonb", s.data, ^%{disallowed: true}),
-  where: fragment("?::jsonb @> ?::jsonb", s.data, ^%{manufacturer: nil})>
-  ```
-  """
-  defmacro jsonb_and_where(query, col, params, opts \\ []),
-    do: do_json_where_macro(query, col, params, [{:where_type, :where} | opts])
-
-  defp do_json_where_macro(query, _, [], _), do: query
-
-  defp do_json_where_macro(query, col, params, opts) do
-    where_type = Keyword.get(opts, :where_type, :where)
-    dynamic_fun = Keyword.get(opts, :gen_dynamic)
-
-    quote do
-      dynamic_fun = unquote(dynamic_fun)
-
-      Enum.reduce(unquote(params), unquote(query), fn {key, val}, acc ->
-        key = to_string(key)
-
-        # either use dynamic_func to create the dynamic fragment or use
-        # the default one
-        frag =
-          if dynamic_fun do
-            dynamic_fun.(unquote(col), key, val)
-          else
-            dynamic(
-              [q],
-              fragment(
-                "?::jsonb @> ?::jsonb",
-                field(q, ^unquote(col)),
-                ^%{key => val}
-              )
-            )
-          end
-
-        from(q in acc, [
-          {
-            unquote(where_type),
-            ^frag
-          }
-        ])
-      end)
+      _ ->
+        result
     end
   end
 end
