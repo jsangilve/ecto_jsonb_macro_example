@@ -84,8 +84,8 @@ defmodule JsonbMacroExample do
     end
   end
 
-  ###########
-  ## Macro v2
+  ##################
+  ## The Final Macro
 
   @doc """
   v2: A macro that generates multiple fragments using dynamic expressions.
@@ -97,7 +97,7 @@ defmodule JsonbMacroExample do
     * `gen_dynamic` - An optional function to generate a dynamic fragment
     (using `Ecto.Query.dynamic`).
   """
-  defmacro json_multi_expressions_v2(col, params, opts) do
+  defmacro json_multi_expressions(col, params, opts) do
     # conjuctive operator to be used between fragments
     conjunction = Keyword.get(opts, :conjunction, :and)
     # a function that generates a dynamic expression

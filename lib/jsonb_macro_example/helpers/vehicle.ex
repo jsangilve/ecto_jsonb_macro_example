@@ -4,7 +4,7 @@ defmodule JsonbMacroExample.Helpers.Vehicle do
   alias JsonbMacroExample.Schemas.Vehicle
 
   import Ecto.Query
-  import JsonbMacroExample, only: [json_multi_expressions_v2: 3]
+  import JsonbMacroExample, only: [json_multi_expressions: 3]
 
   @type vehicle :: Ecto.Schema.t()
 
@@ -41,7 +41,7 @@ defmodule JsonbMacroExample.Helpers.Vehicle do
   @spec query_specs(Ecto.Query.t(), Keyword.t()) :: [vehicle]
   def query_specs(query, params, conjunction \\ :and) do
     fragments =
-      json_multi_expressions_v2(:specs, params,
+      json_multi_expressions(:specs, params,
         conjunction: conjunction,
         dynamic_fun: &query_json_col/3
       )
