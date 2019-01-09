@@ -8,46 +8,72 @@ defmodule JsonbMacroExample do
   #########
   # Macros
 
-  #  @doc """
-  #  A macro that transforms parameter into `where` / `or_where` expressions
-  #  over the `jsonb` column `col`.
-  #  """
-  #  defmacro json_where_query(query, col, params, opts) do
-  #    where_type = Keyword.get(opts, :where_type, :where)
-  #
-  #    quote do
-  #      Enum.reduce(unquote(params), unquote(query), fn {key, val}, acc ->
-  #        from(q in acc, [
-  #          {
-  #            unquote(where_type),
-  #              fragment(
-  #                "?::jsonb @> ?::jsonb",
-  #                field(q, ^unquote(col)),
-  #                ^%{to_string(key) => val}
-  #              )
-  #          }
-  #        ])
-  #      end)
-  #    end
-  #  end
+  @doc """
+  A macro that transforms parameter into `where` / `or_where` expressions
+  over the `jsonb` column `col`.
+  """
+  defmacro json_where_query(query, col, params, opts) do
+    where_type = Keyword.get(opts, :where_type, :where)
+
+    quote do
+      Enum.reduce(unquote(params), unquote(query), fn {key, val}, acc ->
+        from(q in acc, [
+          {
+            unquote(where_type),
+            fragment(
+              "?::jsonb @> ?::jsonb",
+              field(q, ^unquote(col)),
+              ^%{to_string(key) => val}
+            )
+          }
+        ])
+      end)
+    end
+  end
 
   @doc """
-  A macro that generates multiple fragments using dynamic expressions.
+  v0: A macro that generates multiple fragments using dynamic expressions.
   """
-  defmacro json_multi_fragments_v1(col, params, opts) do
-    where_type = Keyword.get(opts, :where_type, :and)
+  defmacro json_multi_fragments_v0(col, params, opts) do
+    conjunction = Keyword.get(opts, :conjunction, :and)
     # conjuctive operator to be used between fragments
 
     quote do
       fragments =
         Enum.reduce(unquote(params), nil, fn {key, val}, acc ->
-          JsonbMacroExample.combine_fragments(unquote(col), key, val, acc, unquote(where_type))
+          frag =
+            dynamic(
+              [q],
+              fragment(
+                "?::jsonb @> ?::jsonb",
+                field(q, ^unquote(col)),
+                ^%{to_string(key) => val}
+              )
+            )
+
+          JsonbMacroExample.do_combine(frag, acc, unquote(conjunction))
+        end)
+    end
+  end
+
+  @doc """
+  v1: A macro that generates multiple fragments using dynamic expressions.
+  """
+  defmacro json_multi_fragments_v1(col, params, opts) do
+    conjunction = Keyword.get(opts, :conjunction, :and)
+    # conjuctive operator to be used between fragments
+
+    quote do
+      fragments =
+        Enum.reduce(unquote(params), nil, fn {key, val}, acc ->
+          JsonbMacroExample.combine_fragments(unquote(col), key, val, acc, unquote(conjunction))
         end)
     end
   end
 
   @doc false
-  def combine_fragments(col, key, val, acc, where_type) do
+  @spec combine_fragments(atom(), binary() | atom(), term(), Macro.t(), atom()) :: Macro.t()
+  def combine_fragments(col, key, val, acc, conjunction) do
     frag =
       dynamic(
         [q],
@@ -58,13 +84,13 @@ defmodule JsonbMacroExample do
         )
       )
 
-    # TODO I'd write this using case, but it generates a compilation warning
+    # TODO I'd write this using a case, but it generates a compilation warning
     # https://github.com/elixir-lang/elixir/issues/6738
-    JsonbMacroExample.do_combine(frag, acc, where_type)
+    JsonbMacroExample.do_combine(frag, acc, conjunction)
   end
 
   @doc false
-  def do_combine(frag, acc, where_type)
+  def do_combine(frag, acc, conjunction)
   def do_combine(frag, nil, _), do: frag
   def do_combine(frag, acc, :or), do: dynamic([q], ^acc or ^frag)
   def do_combine(frag, acc, _), do: dynamic([q], ^acc and ^frag)

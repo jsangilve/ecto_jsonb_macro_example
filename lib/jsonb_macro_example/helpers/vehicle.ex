@@ -34,9 +34,8 @@ defmodule JsonbMacroExample.Helpers.Vehicle do
   end
 
   @spec query_specs(Ecto.Query.t(), Keyword.t()) :: [vehicle]
-  def query_specs(query, params) do
+  def query_specs(query, params, conjunction \\ :and) do
     query
-    |> where([q], q.brand == "Mercedez-benz")
-    |> where([_q], ^json_multi_fragments_v1(:specs, params, []))
+    |> where([_q], ^json_multi_fragments_v1(:specs, params, [conjunction: conjunction]))
   end
 end
